@@ -1,31 +1,27 @@
-#!/usr/bin/env bash
+#!/bin/sh
+
 set -e
 
-BUILD_DIR=$1
-CACHE_DIR=$2
-ENV_DIR=$3
+OPENSSL_VERSION=3.3.4
+OPENSSL_DIR=$1/.heroku/vendor/openssl
 
-# Set OpenSSL version to install
-OPENSSL_VERSION="3.3.4"
+echo "-----> Installing OpenSSL $OPENSSL_VERSION"
 
-# Check for required tools (gcc, make, zlib)
-if ! command -v gcc >/dev/null 2>&1 || ! command -v make >/dev/null 2>&1 || ! pkg-config --libs zlib >/dev/null 2>&1; then
-  echo "Error: Missing required build tools (gcc, make, or zlib). Ensure build-essential and zlib1g-dev are available."
-  exit 1
-fi
-
-# Download and compile OpenSSL
+mkdir -p $OPENSSL_DIR
 cd /tmp
-wget https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz
-tar -xzf openssl-${OPENSSL_VERSION}.tar.gz
-cd openssl-${OPENSSL_VERSION}
-./config --prefix=/app/openssl --openssldir=/app/openssl shared zlib
-make -j$(nproc)
-make install
 
-# Export paths for subsequent buildpacks and runtime
-export LD_LIBRARY_PATH=/app/openssl/lib64:$LD_LIBRARY_PATH
-export PATH=/app/openssl/bin:$PATH
-mkdir -p $BUILD_DIR/.profile.d
-echo "export LD_LIBRARY_PATH=/app/openssl/lib64:\$LD_LIBRARY_PATH" >> $BUILD_DIR/.profile.d/openssl.sh
-echo "export PATH=/app/openssl/bin:\$PATH" >> $BUILD_DIR/.profile.d/openssl.sh
+# Download and extract OpenSSL
+curl -O https://www.openssl.org/source/openssl-$OPENSSL_VERSION.tar.gz
+tar xzf openssl-$OPENSSL_VERSION.tar.gz
+cd openssl-$OPENSSL_VERSION
+
+# Configure and install to the app directory
+./config --prefix=$OPENSSL_DIR no-shared no-tests > /dev/null
+make -s
+make install_sw > /dev/null
+
+# Cleanup
+cd /tmp
+rm -rf openssl-$OPENSSL_VERSION openssl-$OPENSSL_VERSION.tar.gz
+
+echo "-----> OpenSSL installed to $OPENSSL_DIR"
