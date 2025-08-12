@@ -1,36 +1,45 @@
 #!/usr/bin/env bash
 set -e
 
-BUILD_DIR="$1"
-CACHE_DIR="$2"
-ENV_DIR="$3"
+BUILD_DIR=$1
+CACHE_DIR=$2
+ENV_DIR=$3
 
-OPENSSL_VERSION="3.3.4"
-OPENSSL_URL="https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VERSION}/openssl-${OPENSSL_VERSION}.tar.gz"
+OPENSSL_VERSION=3.3.4
 OPENSSL_INSTALL_DIR="$BUILD_DIR/.openssl"
+OPENSSL_URL="https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VERSION/openssl-$OPENSSL_VERSION.tar.gz"
 
-echo "-----> Installing OpenSSL ${OPENSSL_VERSION}"
+echo "-----> Installing OpenSSL $OPENSSL_VERSION"
 
-# Create directories
-mkdir -p "$OPENSSL_INSTALL_DIR"
+# Download quietly
+curl -sL "$OPENSSL_URL" | tar xzf - >/dev/null 2>&1
+cd "openssl-$OPENSSL_VERSION"
 
-# Download and extract OpenSSL quietly
-curl -sL "$OPENSSL_URL" | tar -xzf - -C /tmp
+# Configure quietly
+./config --prefix="$OPENSSL_INSTALL_DIR" --openssldir="$OPENSSL_INSTALL_DIR" no-shared >/dev/null 2>&1
 
-# Build OpenSSL quietly
-cd "/tmp/openssl-${OPENSSL_VERSION}"
-./config --prefix="$OPENSSL_INSTALL_DIR" --openssldir="$OPENSSL_INSTALL_DIR/ssl" no-shared > /dev/null
-make -s -j"$(nproc)" > /dev/null
-make install_sw > /dev/null
+# Build & install quietly
+make -s >/dev/null 2>&1
+make -s install_sw >/dev/null 2>&1
 
-# Export paths for subsequent buildpacks
+# Export for this build so later buildpacks see it
+export PATH="$OPENSSL_INSTALL_DIR/bin:$PATH"
+export LD_LIBRARY_PATH="$OPENSSL_INSTALL_DIR/lib64:$LD_LIBRARY_PATH"
+export LIBRARY_PATH="$OPENSSL_INSTALL_DIR/lib64:$LIBRARY_PATH"
+export CPATH="$OPENSSL_INSTALL_DIR/include:$CPATH"
+export PKG_CONFIG_PATH="$OPENSSL_INSTALL_DIR/lib64/pkgconfig:$PKG_CONFIG_PATH"
+
+# Persist for runtime
 mkdir -p "$BUILD_DIR/.profile.d"
-{
-  echo "export PATH=\"$OPENSSL_INSTALL_DIR/bin:\$PATH\""
-  echo "export LD_LIBRARY_PATH=\"$OPENSSL_INSTALL_DIR/lib:\$LD_LIBRARY_PATH\""
-  echo "export LIBRARY_PATH=\"$OPENSSL_INSTALL_DIR/lib:\$LIBRARY_PATH\""
-  echo "export CPATH=\"$OPENSSL_INSTALL_DIR/include:\$CPATH\""
-  echo "export PKG_CONFIG_PATH=\"$OPENSSL_INSTALL_DIR/lib/pkgconfig:\$PKG_CONFIG_PATH\""
-} > "$BUILD_DIR/.profile.d/openssl.sh"
+cat <<EOF > "$BUILD_DIR/.profile.d/openssl.sh"
+export PATH="$OPENSSL_INSTALL_DIR/bin:\$PATH"
+export LD_LIBRARY_PATH="$OPENSSL_INSTALL_DIR/lib64:\$LD_LIBRARY_PATH"
+export LIBRARY_PATH="$OPENSSL_INSTALL_DIR/lib64:\$LIBRARY_PATH"
+export CPATH="$OPENSSL_INSTALL_DIR/include:\$CPATH"
+export PKG_CONFIG_PATH="$OPENSSL_INSTALL_DIR/lib64/pkgconfig:\$PKG_CONFIG_PATH"
+EOF
+
+cd ..
+rm -rf "openssl-$OPENSSL_VERSION"
 
 echo "-----> OpenSSL ${OPENSSL_VERSION} installed"
