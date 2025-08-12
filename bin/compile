@@ -5,24 +5,30 @@ BUILD_DIR=$1
 CACHE_DIR=$2
 ENV_DIR=$3
 
-OPENSSL_VERSION=3.3.4
+OPENSSL_VERSION="3.3.4"
 OPENSSL_INSTALL_DIR="$BUILD_DIR/.openssl"
 OPENSSL_URL="https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VERSION/openssl-$OPENSSL_VERSION.tar.gz"
 
 echo "-----> Installing OpenSSL $OPENSSL_VERSION"
 
-# Download quietly
+# Check for required tools (gcc, make, zlib)
+if ! command -v gcc >/dev/null 2>&1 || ! command -v make >/dev/null 2>&1 || ! pkg-config --libs zlib >/dev/null 2>&1; then
+  echo "Error: Missing required build tools (gcc, make, or zlib). Ensure build-essential and zlib1g-dev are available."
+  exit 1
+fi
+
+# Download and extract quietly
 curl -sL "$OPENSSL_URL" | tar xzf - >/dev/null 2>&1
 cd "openssl-$OPENSSL_VERSION"
 
-# Configure quietly
-./config --prefix="$OPENSSL_INSTALL_DIR" --openssldir="$OPENSSL_INSTALL_DIR" no-shared >/dev/null 2>&1
+# Configure with shared libraries
+./config --prefix="$OPENSSL_INSTALL_DIR" --openssldir="$OPENSSL_INSTALL_DIR" shared zlib >/dev/null 2>&1
 
-# Build & install quietly
-make -s >/dev/null 2>&1
+# Build and install quietly
+make -s -j$(nproc) >/dev/null 2>&1
 make -s install_sw >/dev/null 2>&1
 
-# Export for this build so later buildpacks see it
+# Export for this build
 export PATH="$OPENSSL_INSTALL_DIR/bin:$PATH"
 export LD_LIBRARY_PATH="$OPENSSL_INSTALL_DIR/lib64:$LD_LIBRARY_PATH"
 export LIBRARY_PATH="$OPENSSL_INSTALL_DIR/lib64:$LIBRARY_PATH"
