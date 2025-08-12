@@ -1,0 +1,2 @@
+#!/bin/sh
+echo "export LD_LIBRARY_PATH=/app/.heroku/vendor/openssl/lib:\$LD_LIBRARY_PATH"

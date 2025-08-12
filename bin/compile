@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -e
+
+BUILD_DIR=$1
+CACHE_DIR=$2
+ENV_DIR=$3
+
+# Set OpenSSL version to install
+OPENSSL_VERSION="3.3.4"
+
+# Install dependencies
+apt-get update
+apt-get install -y build-essential zlib1g-dev
+
+# Download and compile OpenSSL
+cd /tmp
+wget https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz
+tar -xzf openssl-${OPENSSL_VERSION}.tar.gz
+cd openssl-${OPENSSL_VERSION}
+./config --prefix=/app/openssl --openssldir=/app/openssl shared zlib
+make -j$(nproc)
+make install
+
+# Export paths for subsequent buildpacks and runtime
+export LD_LIBRARY_PATH=/app/openssl/lib64:$LD_LIBRARY_PATH
+export PATH=/app/openssl/bin:$PATH
+mkdir -p $BUILD_DIR/.profile.d
+echo "export LD_LIBRARY_PATH=/app/openssl/lib64:\$LD_LIBRARY_PATH" >> $BUILD_DIR/.profile.d/openssl.sh
+echo "export PATH=/app/openssl/bin:\$PATH" >> $BUILD_DIR/.profile.d/openssl.sh
