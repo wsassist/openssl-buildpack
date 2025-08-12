@@ -8,9 +8,9 @@ ENV_DIR=$3
 # Set OpenSSL version to install
 OPENSSL_VERSION="3.3.4"
 
-# Install dependencies
-apt-get update
-apt-get install -y build-essential zlib1g-dev
+# Install dependencies with sudo
+sudo apt-get update
+sudo apt-get install -y build-essential zlib1g-dev
 
 # Download and compile OpenSSL
 cd /tmp
