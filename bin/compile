@@ -7,6 +7,7 @@ ENV_DIR=$3
 
 OPENSSL_VERSION="3.3.4"
 OPENSSL_INSTALL_DIR="$BUILD_DIR/.openssl"
+OPENSSL_CACHE_DIR="$CACHE_DIR/openssl-$OPENSSL_VERSION"
 OPENSSL_URL="https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VERSION/openssl-$OPENSSL_VERSION.tar.gz"
 
 echo "-----> Installing OpenSSL $OPENSSL_VERSION"
@@ -17,16 +18,30 @@ if ! command -v gcc >/dev/null 2>&1 || ! command -v make >/dev/null 2>&1 || ! pk
   exit 1
 fi
 
-# Download and extract quietly
-curl -sL "$OPENSSL_URL" | tar xzf - >/dev/null 2>&1
-cd "openssl-$OPENSSL_VERSION"
+if [ -d "$OPENSSL_CACHE_DIR" ]; then
+  echo "-----> Restoring OpenSSL from cache"
+  cp -r "$OPENSSL_CACHE_DIR" "$OPENSSL_INSTALL_DIR"
+else
+  echo "-----> Building OpenSSL (cache miss)"
 
-# Configure with shared libraries
-./config --prefix="$OPENSSL_INSTALL_DIR" --openssldir="$OPENSSL_INSTALL_DIR" shared zlib >/dev/null 2>&1
+  # Download and extract quietly
+  curl -sL "$OPENSSL_URL" | tar xzf - >/dev/null 2>&1
+  cd "openssl-$OPENSSL_VERSION"
 
-# Build and install quietly
-make -s -j$(nproc) >/dev/null 2>&1
-make -s install_sw >/dev/null 2>&1
+  # Configure with shared libraries
+  ./config --prefix="$OPENSSL_INSTALL_DIR" --openssldir="$OPENSSL_INSTALL_DIR" shared zlib >/dev/null 2>&1
+
+  # Build and install quietly
+  make -s -j$(nproc) >/dev/null 2>&1
+  make -s install_sw >/dev/null 2>&1
+
+  cd ..
+  rm -rf "openssl-$OPENSSL_VERSION"
+
+  # Cache the installation
+  mkdir -p "$OPENSSL_CACHE_DIR"
+  cp -r "$OPENSSL_INSTALL_DIR"/* "$OPENSSL_CACHE_DIR"
+fi
 
 # Export for this build (for Ruby buildpack)
 export PATH="$OPENSSL_INSTALL_DIR/bin:$PATH"
@@ -53,8 +68,5 @@ EOF
 export LDFLAGS="-L$OPENSSL_INSTALL_DIR/lib64"
 export CFLAGS="-I$OPENSSL_INSTALL_DIR/include"
 export CPPFLAGS="-I$OPENSSL_INSTALL_DIR/include"
-
-cd ..
-rm -rf "openssl-$OPENSSL_VERSION"
 
 echo "-----> OpenSSL ${OPENSSL_VERSION} installed"
