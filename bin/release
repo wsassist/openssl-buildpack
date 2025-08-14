@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 set -e
-
-# Output YAML for Herokuish release phase
 cat <<EOF
 ---
 config_vars:
-  PATH: "/app/.openssl/bin:\$PATH"
-  LD_LIBRARY_PATH: "/app/.openssl/lib64:\$LD_LIBRARY_PATH"
-  LIBRARY_PATH: "/app/.openssl/lib64:\$LIBRARY_PATH"
-  CPATH: "/app/.openssl/include:\$CPATH"
-  PKG_CONFIG_PATH: "/app/.openssl/lib64/pkgconfig:\$PKG_CONFIG_PATH"
+  PATH: "/app/.heroku/vendor/openssl/bin:\$PATH"
+  LD_LIBRARY_PATH: "/app/.heroku/vendor/openssl/lib64:\$LD_LIBRARY_PATH"
+  LIBRARY_PATH: "/app/.heroku/vendor/openssl/lib64:\$LIBRARY_PATH"
+  CPATH: "/app/.heroku/vendor/openssl/include:\$CPATH"
+  PKG_CONFIG_PATH: "/app/.heroku/vendor/openssl/lib64/pkgconfig:\$PKG_CONFIG_PATH"
 EOF
