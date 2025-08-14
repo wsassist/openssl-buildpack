@@ -6,11 +6,11 @@ CACHE_DIR=$2
 ENV_DIR=$3
 
 OPENSSL_VERSION="3.3.4"
-OPENSSL_INSTALL_DIR="$BUILD_DIR/.heroku/vendor/openssl"
+OPENSSL_INSTALL_DIR="$BUILD_DIR/.openssl"
 OPENSSL_CACHE_DIR="$CACHE_DIR/openssl-$OPENSSL_VERSION"
 OPENSSL_URL="https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VERSION/openssl-$OPENSSL_VERSION.tar.gz"
 
-echo "-----> Installing OpenSSL ${OPENSSL_VERSION}"
+echo "-----> Installing OpenSSL $OPENSSL_VERSION"
 
 # Check for required tools (gcc, make, zlib)
 if ! command -v gcc >/dev/null 2>&1 || ! command -v make >/dev/null 2>&1 || ! pkg-config --libs zlib >/dev/null 2>&1; then
@@ -20,55 +20,82 @@ fi
 
 if [ -d "$OPENSSL_CACHE_DIR" ]; then
   echo "-----> Restoring OpenSSL from cache"
+  rm -rf "$OPENSSL_INSTALL_DIR"
   mkdir -p "$(dirname "$OPENSSL_INSTALL_DIR")"
-  cp -r "$OPENSSL_CACHE_DIR" "$OPENSSL_INSTALL_DIR"
+  cp -a "$OPENSSL_CACHE_DIR" "$OPENSSL_INSTALL_DIR"
 else
   echo "-----> Building OpenSSL (cache miss)"
-
-  # Download and extract quietly
   curl -sL "$OPENSSL_URL" | tar xzf - >/dev/null 2>&1
   cd "openssl-$OPENSSL_VERSION"
 
-  # Configure with shared libraries
+  # Build shared so runtime can preload our libssl/libcrypto
   ./config --prefix="$OPENSSL_INSTALL_DIR" --openssldir="$OPENSSL_INSTALL_DIR" shared zlib >/dev/null 2>&1
-
-  # Build and install quietly
   make -s -j"$(nproc)" >/dev/null 2>&1
   make -s install_sw >/dev/null 2>&1
 
   cd ..
   rm -rf "openssl-$OPENSSL_VERSION"
 
-  # Cache the installation
-  mkdir -p "$OPENSSL_CACHE_DIR"
-  cp -r "$OPENSSL_INSTALL_DIR"/* "$OPENSSL_CACHE_DIR"
+  # Cache the installation (preserve symlinks, perms)
+  rm -rf "$OPENSSL_CACHE_DIR"
+  cp -a "$OPENSSL_INSTALL_DIR" "$OPENSSL_CACHE_DIR"
 fi
 
-# Export for this build so Ruby buildpack compiles against it
+# Paths (cover both lib and lib64 — OpenSSL may choose either)
+OPENSSL_LIB_DIR="$OPENSSL_INSTALL_DIR/lib"
+OPENSSL_LIB64_DIR="$OPENSSL_INSTALL_DIR/lib64"
+# Build a combined lib path that prefers lib64 if it exists
+COMBINED_LIB_PATH=""
+[ -d "$OPENSSL_LIB64_DIR" ] && COMBINED_LIB_PATH="$OPENSSL_LIB64_DIR"
+[ -d "$OPENSSL_LIB_DIR" ] && COMBINED_LIB_PATH="${COMBINED_LIB_PATH:+$COMBINED_LIB_PATH:}$OPENSSL_LIB_DIR"
+
+# Export for **this buildpack’s process only**
 export PATH="$OPENSSL_INSTALL_DIR/bin:$PATH"
-export LD_LIBRARY_PATH="$OPENSSL_INSTALL_DIR/lib64:$LD_LIBRARY_PATH"
-export LIBRARY_PATH="$OPENSSL_INSTALL_DIR/lib64:$LIBRARY_PATH"
-export CPATH="$OPENSSL_INSTALL_DIR/include:$CPATH"
-export PKG_CONFIG_PATH="$OPENSSL_INSTALL_DIR/lib64/pkgconfig:$PKG_CONFIG_PATH"
-export LDFLAGS="-L$OPENSSL_INSTALL_DIR/lib64"
-export CFLAGS="-I$OPENSSL_INSTALL_DIR/include"
-export CPPFLAGS="-I$OPENSSL_INSTALL_DIR/include"
+export LD_LIBRARY_PATH="${COMBINED_LIB_PATH}:${LD_LIBRARY_PATH:-}"
+export LIBRARY_PATH="${COMBINED_LIB_PATH}:${LIBRARY_PATH:-}"
+export CPATH="$OPENSSL_INSTALL_DIR/include:${CPATH:-}"
+export PKG_CONFIG_PATH="${OPENSSL_LIB64_DIR}/pkgconfig:${OPENSSL_LIB_DIR}/pkgconfig:${PKG_CONFIG_PATH:-}"
+export LDFLAGS="-L${OPENSSL_LIB64_DIR} -L${OPENSSL_LIB_DIR} ${LDFLAGS:-}"
+export CFLAGS="-I$OPENSSL_INSTALL_DIR/include ${CFLAGS:-}"
+export CPPFLAGS="-I$OPENSSL_INSTALL_DIR/include ${CPPFLAGS:-}"
 
-# Debug: Verify OpenSSL binary
 echo "-----> Verifying OpenSSL installation"
-"$OPENSSL_INSTALL_DIR/bin/openssl" version
+"$OPENSSL_INSTALL_DIR/bin/openssl" version || true
 
-# Persist for runtime
+# Persist for runtime via .profile.d (sourced on dyno start)
 mkdir -p "$BUILD_DIR/.profile.d"
-cat <<EOF > "$BUILD_DIR/.profile.d/zz_openssl_fix.sh"
+cat > "$BUILD_DIR/.profile.d/zz_openssl_fix.sh" <<EOF
 export PATH="$OPENSSL_INSTALL_DIR/bin:\$PATH"
-export LD_LIBRARY_PATH="$OPENSSL_INSTALL_DIR/lib64:\$LD_LIBRARY_PATH"
-export LIBRARY_PATH="$OPENSSL_INSTALL_DIR/lib64:\$LIBRARY_PATH"
-export CPATH="$OPENSSL_INSTALL_DIR/include:\$CPATH"
-export PKG_CONFIG_PATH="$OPENSSL_INSTALL_DIR/lib64/pkgconfig:\$PKG_CONFIG_PATH"
-export LDFLAGS="-L$OPENSSL_INSTALL_DIR/lib64"
-export CFLAGS="-I$OPENSSL_INSTALL_DIR/include"
-export CPPFLAGS="-I$OPENSSL_INSTALL_DIR/include"
+export LD_LIBRARY_PATH="${COMBINED_LIB_PATH}:\${LD_LIBRARY_PATH:-}"
+export LIBRARY_PATH="${COMBINED_LIB_PATH}:\${LIBRARY_PATH:-}"
+export CPATH="$OPENSSL_INSTALL_DIR/include:\${CPATH:-}"
+export PKG_CONFIG_PATH="${OPENSSL_LIB64_DIR}/pkgconfig:${OPENSSL_LIB_DIR}/pkgconfig:\${PKG_CONFIG_PATH:-}"
+export LDFLAGS="-L${OPENSSL_LIB64_DIR} -L${OPENSSL_LIB_DIR} \${LDFLAGS:-}"
+export CFLAGS="-I$OPENSSL_INSTALL_DIR/include \${CFLAGS:-}"
+export CPPFLAGS="-I$OPENSSL_INSTALL_DIR/include \${CPPFLAGS:-}"
 EOF
+
+# Persist for the **Ruby buildpack release phase** (Ruby’s bin/release reads this exact file)
+mkdir -p "$BUILD_DIR/tmp"
+cat > "$BUILD_DIR/tmp/heroku-buildpack-release-step.yml" <<EOF
+---
+config_vars:
+  PATH: "/app/.openssl/bin:\$PATH"
+  LD_LIBRARY_PATH: "${COMBINED_LIB_PATH/\/tmp\/build/\/app}:\$LD_LIBRARY_PATH"
+  LIBRARY_PATH: "${COMBINED_LIB_PATH/\/tmp\/build/\/app}:\$LIBRARY_PATH"
+  CPATH: "/app/.openssl/include:\$CPATH"
+  PKG_CONFIG_PATH: "/app/.openssl/lib64/pkgconfig:/app/.openssl/lib/pkgconfig:\$PKG_CONFIG_PATH"
+  LDFLAGS: "-L/app/.openssl/lib64 -L/app/.openssl/lib \$LDFLAGS"
+  CFLAGS: "-I/app/.openssl/include \$CFLAGS"
+  CPPFLAGS: "-I/app/.openssl/include \$CPPFLAGS"
+EOF
+
+# Provide a shim so `openssl` CLI resolves to our build even if PATH order changes
+mkdir -p "$BUILD_DIR/bin"
+cat > "$BUILD_DIR/bin/openssl" <<'EOF'
+#!/usr/bin/env bash
+exec "$(dirname "$0")/../.openssl/bin/openssl" "$@"
+EOF
+chmod +x "$BUILD_DIR/bin/openssl"
 
 echo "-----> OpenSSL ${OPENSSL_VERSION} installed"
